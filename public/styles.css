@@ -597,6 +597,104 @@ tr.replay-row-mismatch td { background: var(--fail-bg); }
 .replay-items li { margin: 2px 0; }
 #replay-download:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
 
+/* ---------- 观众视线遮挡检查 ---------- */
+.sightline-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 5fr) minmax(360px, 6fr);
+  gap: 18px;
+  align-items: start;
+}
+.sightline-diagram {
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  background: #12151d;
+  padding: 10px;
+  position: sticky;
+  top: 84px;
+}
+.sightline-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.sightline-pair-label { font-size: 13px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+.sightline-pair-label select {
+  padding: 6px 8px;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  background: #1a1f2b;
+  color: var(--text);
+  font-size: 13px;
+  max-width: 230px;
+}
+.sight-verdict { font-size: 12.5px; font-weight: 700; }
+.sight-verdict.ok { color: var(--ok); }
+.sight-verdict.bad { color: var(--fail); }
+.sight-verdict.warn { color: var(--warn); }
+#sight-svg { width: 100%; height: auto; display: block; border-radius: 8px; }
+.sight-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.sight-legend i {
+  display: inline-block;
+  width: 14px;
+  height: 8px;
+  border-radius: 3px;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+.lg-viewer { background: #5aa9ff; }
+.lg-target { background: var(--accent); }
+.lg-block { background: rgba(217, 161, 59, 0.22); border: 1px solid rgba(217, 161, 59, 0.8); }
+.lg-blocked-seg { background: var(--fail); }
+.lg-clear-seg { background: #6f7a90; }
+
+.sightline-editors { display: flex; flex-direction: column; gap: 14px; }
+.sight-editor h3 { margin: 0 0 8px; font-size: 14px; }
+.sight-form input { flex: 1 1 90px; }
+.sight-form input#viewer-name, .sight-form input#target-name, .sight-form input#blocker-name { flex-basis: 100%; }
+.sight-table { font-size: 12.5px; }
+.sight-table th, .sight-table td { padding: 5px 7px; }
+
+.sight-results-wrap { margin-top: 18px; }
+.sight-result-table { font-size: 12.5px; margin-top: 4px; }
+.sight-result-table th, .sight-result-table td { vertical-align: top; }
+tr.sight-row { cursor: pointer; }
+tr.sight-row:hover td { background: rgba(224, 177, 92, 0.07); }
+tr.sight-row.selected td { background: rgba(224, 177, 92, 0.14); }
+tr.sight-row.is-blocked td { box-shadow: inset 3px 0 0 var(--fail); }
+.sight-intervals { list-style: none; margin: 0; padding: 0; }
+.sight-intervals li { margin: 3px 0; padding: 3px 8px; border-radius: 7px; font-size: 12px; }
+.sight-intervals li.blocked { background: var(--fail-bg); color: #ffb4ae; }
+.sight-intervals li.clear { background: rgba(111, 122, 144, 0.15); color: var(--muted); }
+.sight-intervals .t-exact { color: #c9d2e4; font-variant-numeric: tabular-nums; }
+.sight-first-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--fail);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.sight-raise { font-weight: 700; color: var(--warn); white-space: nowrap; }
+.sight-raise.zero { color: var(--ok); }
+.sight-infeasible { color: var(--fail); font-weight: 700; }
+.sight-sub { display: block; font-size: 11.5px; color: var(--muted); font-weight: 400; }
+
+@media (max-width: 980px) {
+  .sightline-layout { grid-template-columns: 1fr; }
+  .sightline-diagram { position: static; }
+}
+
 @media (max-width: 640px) {
   .panels { grid-template-columns: 1fr; }
   .topbar { padding: 12px 16px; }

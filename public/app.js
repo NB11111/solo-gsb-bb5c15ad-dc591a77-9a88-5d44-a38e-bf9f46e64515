@@ -19,6 +19,8 @@ const state = {
   replayCsv: null, // 最近一次复盘 CSV 原文
   replayResult: null, // 服务端返回的复盘结果
   replayFileName: '',
+  sight: null, // 服务端返回的观众视线遮挡检查结果
+  sightPairKey: null, // 当前在平面图中选中的「观众ID|目标ID」
 };
 
 /* ---------- 工具 ---------- */
@@ -102,6 +104,7 @@ async function refresh() {
   renderDependencies();
   renderValidation();
   renderEvacExitOptions();
+  await refreshSightline();
   await refreshEvacuation();
 }
 
@@ -1157,6 +1160,9 @@ function bindHeaderActions() {
       clearActorForm();
       clearCueForm();
       $('form-dependency').reset();
+      clearViewerForm();
+      clearTargetForm();
+      clearBlockerForm();
     }, '已恢复示例数据');
   });
   document.querySelectorAll('#mode-switch .mode-btn').forEach((btn) => {
@@ -1584,6 +1590,473 @@ function bindReplay() {
   });
 }
 
+/* ---------- 观众视线遮挡检查 ---------- */
+
+function pairKey(p) {
+  return `${p.viewerId}|${p.targetId}`;
+}
+
+function viewerById(id) {
+  return (state.data.viewers || []).find((v) => v.id === id);
+}
+function targetById(id) {
+  return (state.data.targets || []).find((t) => t.id === id);
+}
+function blockerById(id) {
+  return (state.data.blockers || []).find((b) => b.id === id);
+}
+
+/** 精确分数展示："p/q" → 约分并保留分数形态（tn=tf 的相切情形显示单点） */
+function exactText(frac) {
+  const [p, q] = String(frac).split('/').map(Number);
+  if (q === 1) return `${p}`;
+  const g = gcd(Math.abs(p), q);
+  return g === q ? `${p / q}` : `${p / g}/${q / g}`;
+}
+function gcd(a, b) {
+  return b === 0 ? a : gcd(b, a % b);
+}
+
+/** 拉取视线分析并渲染全部子视图 */
+async function refreshSightline() {
+  state.sight = await api('/api/sightline');
+  renderSightEditors();
+  renderSightChips();
+  renderSightPairs();
+  renderSightPairSelect();
+  renderSightDiagram();
+}
+
+function renderSightEditors() {
+  const vt = $('viewers-tbody');
+  vt.innerHTML = (state.data.viewers || [])
+    .map(
+      (v) => `<tr>
+        <td>${escapeHtml(v.name)}</td><td>${v.x}</td><td>${v.y}</td><td>${v.eye}</td>
+        <td class="col-ops">
+          <button class="btn btn-small" data-edit-viewer="${v.id}">编辑</button>
+          <button class="btn btn-danger" data-del-viewer="${v.id}">删除</button>
+        </td></tr>`
+    )
+    .join('') || '<tr><td colspan="5" class="empty-hint">暂无观众点</td></tr>';
+
+  const tt = $('targets-tbody');
+  tt.innerHTML = (state.data.targets || [])
+    .map(
+      (t) => `<tr>
+        <td>${escapeHtml(t.name)}</td><td>${t.x}</td><td>${t.y}</td><td>${t.h}</td>
+        <td class="col-ops">
+          <button class="btn btn-small" data-edit-target="${t.id}">编辑</button>
+          <button class="btn btn-danger" data-del-target="${t.id}">删除</button>
+        </td></tr>`
+    )
+    .join('') || '<tr><td colspan="5" class="empty-hint">暂无舞台目标</td></tr>';
+
+  const bt = $('blockers-tbody');
+  bt.innerHTML = (state.data.blockers || [])
+    .map(
+      (b) => `<tr>
+        <td>${escapeHtml(b.name)}</td><td>${b.x}</td><td>${b.y}</td><td>${b.width}</td><td>${b.depth}</td><td>${b.height}</td>
+        <td class="col-ops">
+          <button class="btn btn-small" data-edit-blocker="${b.id}">编辑</button>
+          <button class="btn btn-danger" data-del-blocker="${b.id}">删除</button>
+        </td></tr>`
+    )
+    .join('') || '<tr><td colspan="7" class="empty-hint">暂无遮挡物</td></tr>';
+}
+
+function renderSightChips() {
+  const s = state.sight.summary;
+  const chips = [
+    `<span class="imp-chip">观众 <strong>${s.viewers}</strong></span>`,
+    `<span class="imp-chip">目标 <strong>${s.targets}</strong></span>`,
+    `<span class="imp-chip">遮挡物 <strong>${s.blockers}</strong></span>`,
+    `<span class="imp-chip">视线对 <strong>${s.pairs}</strong></span>`,
+    `<span class="imp-chip ${s.blockedPairs ? 'bad' : 'good'}">被挡 <strong>${s.blockedPairs}</strong></span>`,
+    `<span class="imp-chip ${s.clearPairs ? 'good' : ''}">无遮挡 <strong>${s.clearPairs}</strong></span>`,
+    `<span class="imp-chip ${s.infeasiblePairs ? 'bad' : ''}">无法靠抬高解决 <strong>${s.infeasiblePairs}</strong></span>`,
+  ].join('');
+  $('sight-chips').innerHTML = chips;
+}
+
+function intervalLiHtml(it, isFirst) {
+  const single = it.tnExact === it.tfExact;
+  const range = single
+    ? `t = <span class="t-exact">${exactText(it.tnExact)}</span>（≈${it.tn}，角点 / 边界单点接触）`
+    : `t ∈ [<span class="t-exact">${exactText(it.tnExact)}</span>, <span class="t-exact">${exactText(it.tfExact)}</span>]（≈${it.tn} ~ ${it.tf}）`;
+  const cls = it.blocked ? 'blocked' : 'clear';
+  const mark = it.blocked ? '🚫 被挡' : '✅ 越过';
+  const firstTag = isFirst ? '<span class="sight-first-tag">首个遮挡物</span>' : '';
+  const req = it.infeasible
+    ? '观众位于该矩形投影内且眼高不超过盒高，抬高目标也无法越过'
+    : it.blocked
+      ? `严格越过需目标高 ≥ <strong>${it.requiredHeight}</strong> cm`
+      : it.requiredHeight === null
+        ? '观众位于该矩形投影内但眼高已高于盒高，无需抬高'
+        : `（当前已越过；若计入越障需 ≥ ${it.requiredHeight} cm）`;
+  return `<li class="${cls}">${mark} <strong>${escapeHtml(it.blockerName)}</strong>${firstTag}<br>${range}<span class="sight-sub">进入点 (${it.enterPoint.x}, ${it.enterPoint.y}) · 离开点 (${it.exitPoint.x}, ${it.exitPoint.y}) · ${req}</span></li>`;
+}
+
+function renderSightPairs() {
+  const tbody = $('sight-pairs-tbody');
+  const pairs = state.sight.pairs;
+  if (pairs.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-hint">请先添加至少一个观众点与一个舞台目标。</td></tr>';
+    return;
+  }
+  tbody.innerHTML = pairs
+    .map((p) => {
+      const selected = pairKey(p) === state.sightPairKey ? ' selected' : '';
+      let verdict;
+      if (p.degenerate) {
+        verdict = '<span class="status-pill unreachable">⚠️ 平面重合</span><span class="sight-sub">观众与目标 x、y 相同，线段退化为点</span>';
+      } else if (p.infeasible) {
+        verdict = '<span class="status-pill fail">🚫 无法越过</span><span class="sight-sub">观众位于某遮挡物投影内</span>';
+      } else if (p.blocked) {
+        verdict = '<span class="status-pill fail">🚫 被遮挡</span>';
+      } else {
+        verdict = '<span class="status-pill ok">✅ 视线通畅</span>';
+      }
+      const first = p.intersections.find((it) => it.blockerId === p.firstBlockerId);
+      const firstCell = first
+        ? `<strong>${escapeHtml(first.blockerName)}</strong><span class="sight-sub">进入参数 t = ${exactText(first.tnExact)}（≈${first.tn}）</span>`
+        : '<span class="empty-hint">—</span>';
+      const intervals = p.intersections.length
+        ? `<ul class="sight-intervals">${p.intersections.map((it) => intervalLiHtml(it, it.blockerId === p.firstBlockerId)).join('')}</ul>`
+        : '<span class="empty-hint">与任何矩形投影均不相交</span>';
+      const suggestCell = p.infeasible
+        ? '<span class="sight-infeasible">—</span>'
+        : `<strong>${p.suggestedHeight}</strong> cm<span class="sight-sub">严格越过全部相交遮挡物的最小整数目标高</span>`;
+      const raiseCell = p.infeasible
+        ? '<span class="sight-infeasible">无法解决</span>'
+        : p.raise > 0
+          ? `<span class="sight-raise">+${p.raise} cm</span>`
+          : '<span class="sight-raise zero">无需抬高</span>';
+      return `<tr class="sight-row${p.blocked ? ' is-blocked' : ''}${selected}" data-sight-pair="${pairKey(p)}">
+        <td>${escapeHtml(p.viewer.name)}<span class="sight-sub">(${p.viewer.x}, ${p.viewer.y}) 眼高 ${p.viewer.eye} cm</span></td>
+        <td>${escapeHtml(p.target.name)}<span class="sight-sub">(${p.target.x}, ${p.target.y}) 高 ${p.target.h} cm</span></td>
+        <td>${verdict}</td>
+        <td>${firstCell}</td>
+        <td>${intervals}</td>
+        <td>${suggestCell}</td>
+        <td>${raiseCell}</td>
+      </tr>`;
+    })
+    .join('');
+}
+
+function renderSightPairSelect() {
+  const sel = $('sight-pair');
+  const pairs = state.sight.pairs;
+  // 选中项被删除时回退到第一项
+  if (!pairs.some((p) => pairKey(p) === state.sightPairKey)) {
+    state.sightPairKey = pairs.length ? pairKey(pairs[0]) : null;
+  }
+  sel.innerHTML = pairs
+    .map((p) => {
+      const flag = p.degenerate ? '⚠️' : p.infeasible ? '🚫' : p.blocked ? '🚫' : '✅';
+      return `<option value="${pairKey(p)}"${pairKey(p) === state.sightPairKey ? ' selected' : ''}>${flag} ${escapeHtml(p.viewer.name)} → ${escapeHtml(p.target.name)}</option>`;
+    })
+    .join('');
+  if (pairs.length === 0) sel.innerHTML = '<option value="">（请添加观众与目标）</option>';
+}
+
+/* ---------- SVG 平面图 ---------- */
+
+const SIGHT_MARGIN = 46;
+const SIGHT_W = 720;
+const SIGHT_H = 560;
+
+function computeSightViewBox() {
+  const pts = [];
+  for (const v of state.data.viewers || []) pts.push([v.x, v.y]);
+  for (const t of state.data.targets || []) pts.push([t.x, t.y]);
+  for (const b of state.data.blockers || []) {
+    pts.push([b.x, b.y]);
+    pts.push([b.x + b.width, b.y + b.depth]);
+  }
+  if (pts.length === 0) return null;
+  let minX = Infinity; let maxX = -Infinity; let minY = Infinity; let maxY = -Infinity;
+  for (const [x, y] of pts) {
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+  }
+  // 留边并处理零宽 / 零高
+  const padX = Math.max(40, Math.round((maxX - minX) * 0.12));
+  const padY = Math.max(40, Math.round((maxY - minY) * 0.12));
+  minX -= padX; maxX += padX; minY -= padY; maxY += padY;
+  if (maxX - minX < 200) { minX -= 100; maxX += 100; }
+  if (maxY - minY < 200) { minY -= 100; maxY += 100; }
+  const scale = Math.min(
+    (SIGHT_W - 2 * SIGHT_MARGIN) / (maxX - minX),
+    (SIGHT_H - 2 * SIGHT_MARGIN) / (maxY - minY)
+  );
+  return { minX, minY, scale };
+}
+
+function svgEl(tag, attrs, text) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k, v] of Object.entries(attrs || {})) el.setAttribute(k, v);
+  if (text !== undefined) el.textContent = text;
+  return el;
+}
+
+function renderSightDiagram() {
+  const svg = $('sight-svg');
+  svg.innerHTML = '';
+  const vb = computeSightViewBox();
+  const verdict = $('sight-verdict');
+
+  if (!vb) {
+    verdict.textContent = '';
+    svg.appendChild(svgEl('text', { x: SIGHT_W / 2, y: SIGHT_H / 2, 'text-anchor': 'middle', fill: '#9aa3b5', 'font-size': 14 }, '添加观众、目标与遮挡物后显示平面图'));
+    return;
+  }
+  const px = (x) => SIGHT_MARGIN + (x - vb.minX) * vb.scale;
+  // SVG y 轴向下，平面坐标 y 向上：翻转
+  const py = (y) => SIGHT_H - SIGHT_MARGIN - (y - vb.minY) * vb.scale;
+
+  // 网格（固定屏幕步长对应的世界步长，约 100 的整数倍）
+  const worldStep = Math.max(100, Math.round(1 / vb.scale / 100) * 100);
+  const gx0 = Math.ceil(vb.minX / worldStep) * worldStep;
+  const gy0 = Math.ceil(vb.minY / worldStep) * worldStep;
+  for (let gx = gx0; gx <= vb.minX + (SIGHT_W - 2 * SIGHT_MARGIN) / vb.scale; gx += worldStep) {
+    svg.appendChild(svgEl('line', { x1: px(gx), y1: SIGHT_MARGIN, x2: px(gx), y2: SIGHT_H - SIGHT_MARGIN, stroke: '#222838', 'stroke-width': 1 }));
+    svg.appendChild(svgEl('text', { x: px(gx), y: SIGHT_H - SIGHT_MARGIN + 16, 'text-anchor': 'middle', fill: '#6f7a90', 'font-size': 10 }, `${gx}`));
+  }
+  for (let gy = gy0; gy <= vb.minY + (SIGHT_H - 2 * SIGHT_MARGIN) / vb.scale; gy += worldStep) {
+    svg.appendChild(svgEl('line', { x1: SIGHT_MARGIN, y1: py(gy), x2: SIGHT_W - SIGHT_MARGIN, y2: py(gy), stroke: '#222838', 'stroke-width': 1 }));
+    svg.appendChild(svgEl('text', { x: SIGHT_MARGIN - 6, y: py(gy) + 3, 'text-anchor': 'end', fill: '#6f7a90', 'font-size': 10 }, `${gy}`));
+  }
+
+  // 遮挡物矩形（先画底，后描边；被首挡物高亮）
+  const current = state.sight.pairs.find((p) => pairKey(p) === state.sightPairKey) || null;
+  const firstId = current && current.firstBlockerId;
+  for (const b of state.data.blockers || []) {
+    const x = px(b.x);
+    const y = py(b.y + b.depth);
+    const w = b.width * vb.scale;
+    const h = b.depth * vb.scale;
+    const isFirst = b.id === firstId;
+    const rect = svgEl('rect', {
+      x, y, width: w, height: h, rx: 3,
+      fill: isFirst ? 'rgba(229,83,75,0.30)' : 'rgba(217,161,59,0.18)',
+      stroke: isFirst ? '#e5534b' : 'rgba(217,161,59,0.85)',
+      'stroke-width': isFirst ? 2.2 : 1.2,
+    });
+    svg.appendChild(rect);
+    svg.appendChild(svgEl('text', { x: x + 5, y: y + 14, fill: isFirst ? '#ff8d86' : '#e8c479', 'font-size': 11, 'font-weight': 600 }, `${b.name} H${b.height}`));
+  }
+
+  // 当前视线：先画整条灰线，再在其上叠加每个相交区间（红=被挡 / 蓝灰=越过）
+  if (current && !current.degenerate) {
+    const v = current.viewer;
+    const t = current.target;
+    const vx = px(v.x); const vy = py(v.y);
+    const tx = px(t.x); const ty = py(t.y);
+    const linePt = (u) => ({ x: vx + (tx - vx) * u, y: vy + (ty - vy) * u });
+    svg.appendChild(svgEl('line', { x1: vx, y1: vy, x2: tx, y2: ty, stroke: '#4a5368', 'stroke-width': 2.4 }));
+    // 从远到近画：被挡区间在最上层；先画 cleared，再画 blocked
+    for (const it of [...current.intersections].reverse()) {
+      if (!it.blocked) continue;
+      const a = linePt(it.tn); const c = linePt(it.tf);
+      svg.appendChild(svgEl('line', { x1: a.x, y1: a.y, x2: c.x, y2: c.y, stroke: '#5d6b86', 'stroke-width': 2.4, opacity: 0.55 }));
+    }
+    for (const it of current.intersections) {
+      const a = linePt(it.tn); const c = linePt(it.tf);
+      const col = it.blocked ? '#e5534b' : '#5d6b86';
+      const width = it.blocked ? 3.4 : 2.4;
+      const op = it.blocked ? 1 : 0.75;
+      svg.appendChild(svgEl('line', { x1: a.x, y1: a.y, x2: c.x, y2: c.y, stroke: col, 'stroke-width': width, opacity: op }));
+      // 进入 / 离开端点
+      for (const q of [a, c]) {
+        svg.appendChild(svgEl('circle', { cx: q.x, cy: q.y, r: it.blocked ? 3.2 : 2.4, fill: col }));
+      }
+    }
+  }
+
+  // 观众点与目标点
+  for (const v of state.data.viewers || []) {
+    const x = px(v.x); const y = py(v.y);
+    svg.appendChild(svgEl('circle', { cx: x, cy: y, r: 6.5, fill: '#5aa9ff', stroke: '#0d1017', 'stroke-width': 2 }));
+    const label = svgEl('text', { x: x + 9, y: y + 4, fill: '#9cc4ff', 'font-size': 11, 'font-weight': 600 }, `👁 ${v.name} 眼高${v.eye}`);
+    svg.appendChild(label);
+  }
+  for (const t of state.data.targets || []) {
+    const x = px(t.x); const y = py(t.y);
+    svg.appendChild(svgEl('polygon', { points: `${x},${y - 7.5} ${x + 7},${y + 5.5} ${x - 7},${y + 5.5}`, fill: '#e0b15c', stroke: '#0d1017', 'stroke-width': 1.5 }));
+    svg.appendChild(svgEl('text', { x: x + 9, y: y + 4, fill: '#eec27a', 'font-size': 11, 'font-weight': 600 }, `★ ${t.name} 高${t.h}`));
+  }
+
+  // 结论文字
+  if (!current) {
+    verdict.textContent = '';
+  } else if (current.degenerate) {
+    verdict.textContent = '⚠️ 观众与目标平面重合';
+    verdict.className = 'sight-verdict warn';
+  } else if (current.infeasible) {
+    verdict.textContent = '🚫 观众位于遮挡物投影内，无法靠抬高目标解决';
+    verdict.className = 'sight-verdict bad';
+  } else if (current.blocked) {
+    const first = current.intersections.find((it) => it.blockerId === current.firstBlockerId);
+    verdict.textContent = `🚫 首挡物：${first.blockerName}（t≈${first.tn}）；目标至少抬高到 ${current.suggestedHeight} cm（+${current.raise} cm）`;
+    verdict.className = 'sight-verdict bad';
+  } else if (current.intersections.length) {
+    verdict.textContent = `✅ 视线越过全部遮挡物（${current.intersections.length} 个矩形投影相交但均未挡）`;
+    verdict.className = 'sight-verdict ok';
+  } else {
+    verdict.textContent = '✅ 视线与任何遮挡物矩形投影均不相交';
+    verdict.className = 'sight-verdict ok';
+  }
+}
+
+/* ---------- 视线模块表单与事件 ---------- */
+
+function clearViewerForm() {
+  $('form-viewer').reset();
+  $('viewer-id').value = '';
+  $('viewer-submit').textContent = '添加观众';
+  $('viewer-cancel').classList.add('hidden');
+}
+function clearTargetForm() {
+  $('form-target').reset();
+  $('target-id').value = '';
+  $('target-submit').textContent = '添加目标';
+  $('target-cancel').classList.add('hidden');
+}
+function clearBlockerForm() {
+  $('form-blocker').reset();
+  $('blocker-id').value = '';
+  $('blocker-submit').textContent = '添加遮挡物';
+  $('blocker-cancel').classList.add('hidden');
+}
+
+function readSightInt(input, min, max, label) {
+  const raw = input.value.trim();
+  const n = Number(raw);
+  if (raw === '' || !Number.isInteger(n) || n < min || n > max) {
+    return { error: `${label}必须是 ${min}～${max} 的整数厘米` };
+  }
+  return { value: n };
+}
+
+function bindSightline() {
+  $('form-viewer').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const x = readSightInt($('viewer-x'), -10000, 10000, 'x');
+    const y = readSightInt($('viewer-y'), -10000, 10000, 'y');
+    const eye = readSightInt($('viewer-eye'), 0, 10000, '眼高');
+    if (x.error || y.error || eye.error) return toast(x.error || y.error || eye.error, true);
+    const body = { name: $('viewer-name').value.trim(), x: x.value, y: y.value, eye: eye.value };
+    const id = $('viewer-id').value;
+    mutate(async () => {
+      if (id) await api(`/api/viewers/${id}`, 'PUT', body);
+      else await api('/api/viewers', 'POST', body);
+      clearViewerForm();
+    }, id ? '观众点已更新' : '观众点已添加');
+  });
+
+  $('form-target').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const x = readSightInt($('target-x'), -10000, 10000, 'x');
+    const y = readSightInt($('target-y'), -10000, 10000, 'y');
+    const h = readSightInt($('target-h'), 0, 10000, '目标高');
+    if (x.error || y.error || h.error) return toast(x.error || y.error || h.error, true);
+    const body = { name: $('target-name').value.trim(), x: x.value, y: y.value, h: h.value };
+    const id = $('target-id').value;
+    mutate(async () => {
+      if (id) await api(`/api/targets/${id}`, 'PUT', body);
+      else await api('/api/targets', 'POST', body);
+      clearTargetForm();
+    }, id ? '舞台目标已更新' : '舞台目标已添加');
+  });
+
+  $('form-blocker').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const x = readSightInt($('blocker-x'), -10000, 10000, 'x');
+    const y = readSightInt($('blocker-y'), -10000, 10000, 'y');
+    const w = readSightInt($('blocker-w'), 1, 10000, '宽度');
+    const d = readSightInt($('blocker-d'), 1, 10000, '进深');
+    const h = readSightInt($('blocker-h'), 0, 10000, '高度');
+    const err = x.error || y.error || w.error || d.error || h.error;
+    if (err) return toast(err, true);
+    const body = { name: $('blocker-name').value.trim(), x: x.value, y: y.value, width: w.value, depth: d.value, height: h.value };
+    const id = $('blocker-id').value;
+    mutate(async () => {
+      if (id) await api(`/api/blockers/${id}`, 'PUT', body);
+      else await api('/api/blockers', 'POST', body);
+      clearBlockerForm();
+    }, id ? '遮挡物已更新' : '遮挡物已添加');
+  });
+
+  $('viewer-cancel').addEventListener('click', clearViewerForm);
+  $('target-cancel').addEventListener('click', clearTargetForm);
+  $('blocker-cancel').addEventListener('click', clearBlockerForm);
+
+  // 表格行内编辑 / 删除（事件委托）
+  document.body.addEventListener('click', (e) => {
+    const t = e.target;
+    if (!(t instanceof HTMLElement)) return;
+    const d = t.dataset;
+    if (d.editViewer) {
+      const v = viewerById(d.editViewer);
+      if (!v) return;
+      $('viewer-id').value = v.id;
+      $('viewer-name').value = v.name;
+      $('viewer-x').value = v.x;
+      $('viewer-y').value = v.y;
+      $('viewer-eye').value = v.eye;
+      $('viewer-submit').textContent = '保存修改';
+      $('viewer-cancel').classList.remove('hidden');
+    } else if (d.delViewer) {
+      mutate(() => api(`/api/viewers/${d.delViewer}`, 'DELETE'), '观众点已删除');
+    } else if (d.editTarget) {
+      const tg = targetById(d.editTarget);
+      if (!tg) return;
+      $('target-id').value = tg.id;
+      $('target-name').value = tg.name;
+      $('target-x').value = tg.x;
+      $('target-y').value = tg.y;
+      $('target-h').value = tg.h;
+      $('target-submit').textContent = '保存修改';
+      $('target-cancel').classList.remove('hidden');
+    } else if (d.delTarget) {
+      mutate(() => api(`/api/targets/${d.delTarget}`, 'DELETE'), '舞台目标已删除');
+    } else if (d.editBlocker) {
+      const b = blockerById(d.editBlocker);
+      if (!b) return;
+      $('blocker-id').value = b.id;
+      $('blocker-name').value = b.name;
+      $('blocker-x').value = b.x;
+      $('blocker-y').value = b.y;
+      $('blocker-w').value = b.width;
+      $('blocker-d').value = b.depth;
+      $('blocker-h').value = b.height;
+      $('blocker-submit').textContent = '保存修改';
+      $('blocker-cancel').classList.remove('hidden');
+    } else if (d.delBlocker) {
+      mutate(() => api(`/api/blockers/${d.delBlocker}`, 'DELETE'), '遮挡物已删除');
+    }
+  });
+
+  // 结果表点击行 → 切换平面图视线
+  $('sight-pairs-tbody').addEventListener('click', (e) => {
+    const row = e.target.closest('[data-sight-pair]');
+    if (!row) return;
+    state.sightPairKey = row.dataset.sightPair;
+    renderSightPairs();
+    renderSightPairSelect();
+    renderSightDiagram();
+  });
+
+  // 下拉切换
+  $('sight-pair').addEventListener('change', (e) => {
+    state.sightPairKey = e.target.value;
+    renderSightPairs();
+    renderSightDiagram();
+  });
+}
+
 /* ---------- 启动 ---------- */
 
 (async function init() {
@@ -1594,6 +2067,7 @@ function bindReplay() {
   bindDependencies();
   bindImport();
   bindReplay();
+  bindSightline();
   setMode(state.mode);
   try {
     await refresh();

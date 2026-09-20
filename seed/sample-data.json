@@ -46,5 +46,20 @@
     { "id": "dep-l2-z3", "predecessorId": "cue-l2", "successorId": "cue-z3", "waitSeconds": 0, "note": "李四独唱结束后张三才能登上二层平台（区段独立模式违约、延误传导模式满足的模式差异演示）" },
     { "id": "dep-z2-l4", "predecessorId": "cue-z2", "successorId": "cue-l4", "waitSeconds": 5, "note": "张三上台亮相后至少 5 秒李四才能上二层平台（跨演员满足演示）" },
     { "id": "dep-l2-w2", "predecessorId": "cue-l2", "successorId": "cue-w2", "waitSeconds": 0, "note": "李四独唱后王五方可前往天台（后置口令不可达 → 无法判定演示）" }
+  ],
+  "viewers": [
+    { "id": "viewer-pit-center", "name": "池座中排观众", "x": 0, "y": 0, "eye": 120 },
+    { "id": "viewer-pit-side", "name": "池座侧排观众", "x": 100, "y": -50, "eye": 110 },
+    { "id": "viewer-balcony", "name": "楼座观众", "x": 200, "y": -150, "eye": 300 }
+  ],
+  "targets": [
+    { "id": "target-center", "name": "舞台中央主表演点", "x": 1000, "y": 600, "h": 100 },
+    { "id": "target-curtain", "name": "台前谢幕点", "x": 700, "y": 200, "h": 120 }
+  ],
+  "blockers": [
+    { "id": "blocker-pit-wall", "name": "乐池矮墙", "x": 480, "y": 288, "width": 60, "depth": 36, "height": 150 },
+    { "id": "blocker-side-light", "name": "侧台灯箱", "x": 350, "y": 50, "width": 100, "depth": 100, "height": 180 },
+    { "id": "blocker-speaker", "name": "台口音箱（角点相切·等高即挡示例）", "x": 400, "y": 120, "width": 20, "depth": 30, "height": 120 },
+    { "id": "blocker-tall-set", "name": "高台布景", "x": 600, "y": 400, "width": 300, "depth": 200, "height": 500 }
   ]
 }
