@@ -13,6 +13,7 @@ const {
   TEMPLATE_HEADER,
 } = require('./import');
 const { buildReplay, ImportFileError: ReplayFileError } = require('./replay');
+const { analyzeSightlines } = require('./sightline');
 
 const router = express.Router();
 
@@ -75,6 +76,19 @@ function isNonNegativeInt(v) {
   return Number.isInteger(v) && v >= 0;
 }
 
+/** 整数厘米坐标 / 尺寸校验（观众视线遮挡检查） */
+const CM_COORD_MIN = -1000000;
+const CM_COORD_MAX = 1000000;
+const CM_HEIGHT_MAX = 100000;
+
+function isCmCoord(v) {
+  return Number.isInteger(v) && v >= CM_COORD_MIN && v <= CM_COORD_MAX;
+}
+
+function isCmHeight(v) {
+  return Number.isInteger(v) && v >= 0 && v <= CM_HEIGHT_MAX;
+}
+
 /** 校验封闭时段数组：[{start, end}]，半开区间 [start, end)，单位秒 */
 function validateClosures(closures) {
   if (closures === undefined) return null;
@@ -131,6 +145,36 @@ const validators = {
     if (body.note !== undefined && typeof body.note !== 'string') return '口令说明格式不正确';
     return null;
   },
+  audiencePoints(body) {
+    if (!isNonEmptyString(body.name, 30)) return '观众点名称必填且不超过 30 字';
+    if (!isCmCoord(body.x) || !isCmCoord(body.y)) {
+      return `坐标 x、y 必须是 ${CM_COORD_MIN}～${CM_COORD_MAX} 的整数厘米`;
+    }
+    if (!isCmHeight(body.eyeHeight)) return `眼高必须是 0～${CM_HEIGHT_MAX} 的整数厘米`;
+    return null;
+  },
+  targets(body) {
+    if (!isNonEmptyString(body.name, 30)) return '舞台目标名称必填且不超过 30 字';
+    if (!isCmCoord(body.x) || !isCmCoord(body.y)) {
+      return `坐标 x、y 必须是 ${CM_COORD_MIN}～${CM_COORD_MAX} 的整数厘米`;
+    }
+    if (!isCmHeight(body.targetHeight)) return `目标高必须是 0～${CM_HEIGHT_MAX} 的整数厘米`;
+    return null;
+  },
+  obstacles(body) {
+    if (!isNonEmptyString(body.name, 30)) return '遮挡物名称必填且不超过 30 字';
+    if (!isCmCoord(body.x) || !isCmCoord(body.y)) {
+      return `坐标 x、y 必须是 ${CM_COORD_MIN}～${CM_COORD_MAX} 的整数厘米`;
+    }
+    if (!Number.isInteger(body.width) || body.width < 1 || body.width > CM_COORD_MAX) {
+      return '宽必须是 1～1000000 的整数厘米';
+    }
+    if (!Number.isInteger(body.depth) || body.depth < 1 || body.depth > CM_COORD_MAX) {
+      return '深必须是 1～1000000 的整数厘米';
+    }
+    if (!isCmHeight(body.height)) return `高必须是 0～${CM_HEIGHT_MAX} 的整数厘米`;
+    return null;
+  },
 };
 
 function sanitize(collection, body) {
@@ -151,6 +195,12 @@ function sanitize(collection, body) {
       if (body.dwell !== undefined) cue.dwell = body.dwell;
       return cue;
     }
+    case 'audiencePoints':
+      return { name: body.name.trim(), x: body.x, y: body.y, eyeHeight: body.eyeHeight };
+    case 'targets':
+      return { name: body.name.trim(), x: body.x, y: body.y, targetHeight: body.targetHeight };
+    case 'obstacles':
+      return { name: body.name.trim(), x: body.x, y: body.y, width: body.width, depth: body.depth, height: body.height };
     default:
       return {};
   }
@@ -385,9 +435,16 @@ router.post('/replay/report', (req, res) => {
   res.send(md);
 });
 
+/* ---------- 观众视线遮挡检查 ---------- */
+
+/** 全量视线分析：每位观众点 × 每个舞台目标，精确裁剪与各矩形投影的相交参数区间 */
+router.get('/sightlines', (req, res) => {
+  res.json(analyzeSightlines(store.load()));
+});
+
 /* ---------- 通用 CRUD ---------- */
 
-const COLLECTIONS = ['areas', 'edges', 'actors', 'cues'];
+const COLLECTIONS = ['areas', 'edges', 'actors', 'cues', 'audiencePoints', 'targets', 'obstacles'];
 
 router.post('/:collection', (req, res) => {
   const { collection } = req.params;

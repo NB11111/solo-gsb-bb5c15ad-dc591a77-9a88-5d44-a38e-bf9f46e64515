@@ -597,6 +597,74 @@ tr.replay-row-mismatch td { background: var(--fail-bg); }
 .replay-items li { margin: 2px 0; }
 #replay-download:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
 
+/* ---------- 观众视线遮挡检查 ---------- */
+.sight-svg {
+  display: block;
+  width: 100%;
+  max-height: 560px;
+  background: #12151d;
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+}
+.sl-grid { stroke: #232838; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.sl-grid-label { fill: #566179; }
+.sl-obstacle {
+  fill: rgba(229, 83, 75, 0.16);
+  stroke: rgba(229, 83, 75, 0.75);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+.sl-obstacle.first-blocker {
+  fill: rgba(229, 83, 75, 0.3);
+  stroke: var(--fail);
+  stroke-width: 3;
+}
+.sl-line { stroke-width: 2; vector-effect: non-scaling-stroke; opacity: 0.9; }
+.sl-line.clear { stroke: var(--ok); }
+.sl-line.blocked { stroke: var(--fail); }
+.sl-line.infeasible { stroke: var(--warn); stroke-dasharray: 7 4; }
+.sl-line.focused { stroke-width: 5; opacity: 1; }
+.sl-hit { stroke: transparent; stroke-width: 14; vector-effect: non-scaling-stroke; cursor: pointer; fill: none; }
+.sl-audience { fill: #6cb4ee; stroke: #0d1520; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.sl-target { fill: var(--accent); stroke: #0d1520; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.sl-label { fill: var(--muted); pointer-events: none; }
+
+.sight-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 8px 0 12px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.sight-key { display: inline-flex; align-items: center; gap: 6px; }
+.sight-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.sight-dot.audience { background: #6cb4ee; }
+.sight-dot.target { background: var(--accent); border-radius: 2px; transform: rotate(45deg); }
+.sight-swatch { width: 16px; height: 10px; display: inline-block; border-radius: 2px; }
+.sight-swatch.obstacle { background: rgba(229, 83, 75, 0.25); border: 1px solid var(--fail); }
+.sight-swatch.line-clear { background: var(--ok); height: 3px; }
+.sight-swatch.line-blocked { background: var(--fail); height: 3px; }
+.sight-swatch.line-infeasible {
+  height: 0;
+  border-top: 3px dashed var(--warn);
+  background: transparent;
+}
+
+.sight-table { font-size: 13px; }
+.sight-table td { vertical-align: top; }
+tr.sight-row-clear td { background: var(--ok-bg); }
+tr.sight-row-blocked td { background: var(--fail-bg); }
+tr.sight-row-infeasible td { background: var(--warn-bg); }
+tr.sight-row-clear, tr.sight-row-blocked, tr.sight-row-infeasible { cursor: pointer; }
+tr.row-focused td { box-shadow: inset 3px 0 0 var(--accent); }
+.sight-int-list { list-style: none; margin: 0; padding: 0; font-size: 12px; color: var(--muted); }
+.sight-int-list li { margin: 2px 0; }
+.sight-int-list code { color: var(--text); font-size: 11.5px; }
+.sight-int-list li.sight-int-blocking { color: #ffb4ae; }
+.sight-int-list li.sight-int-blocking strong { color: var(--fail); }
+.sight-infeasible { color: var(--warn); font-weight: 600; }
+
 @media (max-width: 640px) {
   .panels { grid-template-columns: 1fr; }
   .topbar { padding: 12px 16px; }

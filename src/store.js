@@ -19,7 +19,7 @@ function ensureDataFile() {
 
 /** 规整数据结构：补齐缺失的集合与基线存储（兼容旧版数据文件） */
 function normalize(data) {
-  for (const key of ['areas', 'edges', 'actors', 'cues', 'dependencies']) {
+  for (const key of ['areas', 'edges', 'actors', 'cues', 'dependencies', 'audiencePoints', 'targets', 'obstacles']) {
     if (!Array.isArray(data[key])) data[key] = [];
   }
   // 清理历史残留：依赖任一端口令不存在（如手工编辑过数据文件）时直接丢弃

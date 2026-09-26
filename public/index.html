@@ -12,7 +12,7 @@
       <span class="logo">🎭</span>
       <div>
         <h1>舞台走位校验系统</h1>
-        <p class="subtitle">区域连接图 · 通道容量与封闭时段 · 到位口令时间校验 · 通道占用冲突</p>
+        <p class="subtitle">区域连接图 · 通道容量与封闭时段 · 到位口令时间校验 · 通道占用冲突 · 观众视线遮挡检查</p>
       </div>
     </div>
     <div class="actions">
@@ -129,6 +129,91 @@
       <div id="replay-message"></div>
       <div id="replay-results"></div>
     </section>
+
+    <!-- 观众视线遮挡检查 -->
+    <section class="card" id="panel-sightline">
+      <h2>👁 观众视线遮挡检查</h2>
+      <p class="mode-hint">
+        以整数厘米维护<strong>观众点</strong>（x、y、眼高）、<strong>舞台目标</strong>（x、y、目标高）与<strong>轴对齐矩形遮挡物</strong>（x、y、宽、深、高）。
+        服务端对每条「观众 → 目标」视线段<strong>精确裁剪</strong>其与各矩形投影的相交参数区间（slab 法分数运算，<strong>边界接触算相交</strong>，不是只测矩形中心或采样点）；
+        相交区间内视线高度 ≤ 遮挡物高度（<strong>等于也算被挡</strong>）即判定遮挡，按<strong>最小进入参数</strong>确定首挡物，
+        并给出使视线<strong>严格越过全部相交遮挡物</strong>的最小整数目标高度与建议抬高量。
+      </p>
+      <div id="sight-summary" class="summary"></div>
+      <div id="sight-map"></div>
+      <p class="sight-legend">
+        <span class="sight-key"><span class="sight-dot audience"></span>观众点（眼高）</span>
+        <span class="sight-key"><span class="sight-dot target"></span>舞台目标（目标高）</span>
+        <span class="sight-key"><span class="sight-swatch obstacle"></span>遮挡物（红框 = 某视线的首挡物）</span>
+        <span class="sight-key"><span class="sight-swatch line-clear"></span>通视</span>
+        <span class="sight-key"><span class="sight-swatch line-blocked"></span>被挡</span>
+        <span class="sight-key"><span class="sight-swatch line-infeasible"></span>被挡·无法抬高解决</span>
+        <span class="sight-key">点击视线或表格行可互相定位</span>
+      </p>
+      <div id="sight-results"></div>
+    </section>
+
+    <!-- 数据管理 -->
+    <div class="panels">
+      <section class="card" id="panel-audience">
+        <h2>观众点（视线遮挡检查）</h2>
+        <form id="form-audience" class="entity-form">
+          <input type="hidden" id="aud-id" />
+          <input type="text" id="aud-name" placeholder="观众点名称，如：A 区 1 排 1 座" required maxlength="30" />
+          <input type="number" id="aud-x" placeholder="x (cm)" min="-1000000" max="1000000" step="1" required />
+          <input type="number" id="aud-y" placeholder="y (cm)" min="-1000000" max="1000000" step="1" required />
+          <input type="number" id="aud-eye" placeholder="眼高 (cm)" min="0" max="100000" step="1" required />
+          <div class="form-buttons">
+            <button type="submit" class="btn btn-accent" id="aud-submit">添加观众点</button>
+            <button type="button" class="btn btn-ghost hidden" id="aud-cancel">取消编辑</button>
+          </div>
+        </form>
+        <table>
+          <thead><tr><th>名称</th><th>x</th><th>y</th><th>眼高</th><th class="col-ops">操作</th></tr></thead>
+          <tbody id="audience-tbody"></tbody>
+        </table>
+      </section>
+
+      <section class="card" id="panel-targets">
+        <h2>舞台目标（视线遮挡检查）</h2>
+        <form id="form-target" class="entity-form">
+          <input type="hidden" id="tgt-id" />
+          <input type="text" id="tgt-name" placeholder="目标名称，如：舞台中央表演点" required maxlength="30" />
+          <input type="number" id="tgt-x" placeholder="x (cm)" min="-1000000" max="1000000" step="1" required />
+          <input type="number" id="tgt-y" placeholder="y (cm)" min="-1000000" max="1000000" step="1" required />
+          <input type="number" id="tgt-height" placeholder="目标高 (cm)" min="0" max="100000" step="1" required />
+          <div class="form-buttons">
+            <button type="submit" class="btn btn-accent" id="tgt-submit">添加舞台目标</button>
+            <button type="button" class="btn btn-ghost hidden" id="tgt-cancel">取消编辑</button>
+          </div>
+        </form>
+        <table>
+          <thead><tr><th>名称</th><th>x</th><th>y</th><th>目标高</th><th class="col-ops">操作</th></tr></thead>
+          <tbody id="targets-tbody"></tbody>
+        </table>
+      </section>
+
+      <section class="card" id="panel-obstacles">
+        <h2>遮挡物（轴对齐矩形）</h2>
+        <form id="form-obstacle" class="entity-form">
+          <input type="hidden" id="obs-id" />
+          <input type="text" id="obs-name" placeholder="遮挡物名称，如：乐池护栏" required maxlength="30" />
+          <input type="number" id="obs-x" placeholder="x (cm)" min="-1000000" max="1000000" step="1" required />
+          <input type="number" id="obs-y" placeholder="y (cm)" min="-1000000" max="1000000" step="1" required />
+          <input type="number" id="obs-width" placeholder="宽 (cm)" min="1" max="1000000" step="1" required />
+          <input type="number" id="obs-depth" placeholder="深 (cm)" min="1" max="1000000" step="1" required />
+          <input type="number" id="obs-height" placeholder="高 (cm)" min="0" max="100000" step="1" required />
+          <div class="form-buttons">
+            <button type="submit" class="btn btn-accent" id="obs-submit">添加遮挡物</button>
+            <button type="button" class="btn btn-ghost hidden" id="obs-cancel">取消编辑</button>
+          </div>
+        </form>
+        <table>
+          <thead><tr><th>名称</th><th>x</th><th>y</th><th>宽</th><th>深</th><th>高</th><th class="col-ops">操作</th></tr></thead>
+          <tbody id="obstacles-tbody"></tbody>
+        </table>
+      </section>
+    </div>
 
     <!-- 数据管理 -->
     <div class="panels">
